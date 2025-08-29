@@ -50,27 +50,53 @@ class WeatherFetcher(QThread):
         """Dohvat podataka s OpenWeather API-ja."""
         # TODO: implementirati GET pozive na /weather i /forecast
         #       te emitirati self.finished({...}) ili self.error("...").
-        try:
-            weather_data = requests.get(
-                "http://api.openweathermap.org/data/2.5/weather", params={
-                    "city": self.city,
-                    "api_key": self.api_key,
-                    "units": self.units
-                }
-            )
-            forecast_data = requests.get(
-                "http://api.openweathermap.org/data/2.5/forecast", params={
-                    "city": self.city,
-                    "api_key": self.api_key,
-                    "units": self.units
-                }
-            )
-        except requests.RequestException as e:
-            self.error.emit(str(e))
+        """Dohvat podataka s OpenWeather API-ja."""
+        if not self.api_key:
+            self.error.emit("Nevažeći API ključ. Provjerite postavke.")
             return
-        
-        else:
-            self.error.emit("Greška prilikom dohvaćanja podataka.")
+
+        if not self.city:
+            self.error.emit("Molimo unesite naziv grada.")
+            return
+
+        base_url = "http://api.openweathermap.org/data/2.5"
+        weather_params = {
+            "q": self.city,  # Ostaje 'q' jer je to ispravan parametar za OpenWeather API
+            "appid": self.api_key, # Ostaje 'appid' jer je to ispravan parametar za OpenWeather API
+            "units": self.units
+        }
+        forecast_params = {
+            "q": self.city,
+            "appid": self.api_key,
+            "units": self.units
+        }
+
+        try:
+            weather_response = requests.get(f"{base_url}/weather", params=weather_params)
+            forecast_response = requests.get(f"{base_url}/forecast", params=forecast_params)
+
+            weather_response.raise_for_status()
+            forecast_response.raise_for_status()
+
+            weather_data = weather_response.json()
+            forecast_data = forecast_response.json()
+
+            self.finished.emit({
+                "current": weather_data,
+                "forecast": forecast_data
+            })
+
+        except requests.exceptions.HTTPError as err:
+            if err.response.status_code == 401:
+                self.error.emit("Nevažeći API ključ. Provjerite postavke.")
+            elif err.response.status_code == 404:
+                self.error.emit(f"Grad '{self.city}' nije pronađen.")
+            else:
+                self.error.emit(f"Greška s mrežnom vezom. Provjerite internet.")
+        except requests.exceptions.RequestException as e:
+            self.error.emit(f"Greška s mrežnom vezom. Provjerite internet.")
+        except Exception as e:
+            self.error.emit(f"Neočekivana greška: {e}")
 
 # ---------------------------------------
 # Glavna aplikacija
