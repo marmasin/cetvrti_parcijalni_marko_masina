@@ -63,41 +63,53 @@ weather_app/                 # Glavni direktorij projekta (PySide6 aplikacija)
    pip install PySide6 requests
    ```
    
-5. Izradite UI u Qt Designeru i spremite kao vrijeme_app.ui:
-   ```bash
-   Glavni prozor: QMainWindow
-    Centralni widget: QTabWidget (naziv: main_tabs)
-    Prva kartica – tab_trenutno (QWidget)
-      QLabel: naslov “Trenutno vrijeme”
-      QLineEdit: unos grada (city_input)
-      QPushButton: “Dohvati vrijeme” (fetch_button)
-      QLabel: ime grada i države (city_label)
-      QLabel: ikona vremena (icon_label)
-      QLabel: temperatura (temp_label)
-      QLabel: opis vremena (desc_label)
-      QLabel: vlažnost (humidity_label)
-      QLabel: brzina vjetra (wind_label)
-    Druga kartica – tab_prognoza (QWidget)
-      QTableWidget: forecast_table (3 stupca: “Vrijeme”, “Temperatura”, “Opis”)
-      QLabel: graph_label (poslužiti će kao površina za prikaz grafikona)
-    Treća kartica – tab_postavke (QWidget)
-      QLabel: “OpenWeather API ključ:”
-      QLineEdit: unos API ključa (api_key_input)
-      QLabel: “Jedinice:”
-      QComboBox: units_combo (stavke: “Celzijus”, “Fahrenheit”)
-      QPushButton: “Spremi postavke” (save_settings_button)
-    Statusna traka: dodajte QStatusBar u QMainWindow.
-   ```
+ 5. Izrada UI-a (odaberite jednu opciju)
 
-   6. Generirajte Python UI iz .ui datoteke:
-     ```bash
-     pyside6-uic vrijeme_app.ui -o ui_vrijeme.py
-     ```
+   ### Opcija A — Izradite u Qt Designeru
+   1. Otvorite **Qt Designer** i kreirajte `QMainWindow`.
+   2. Kao **centralni widget** postavite `QTabWidget` (naziv: `main_tabs`).
+   3. Dodajte kartice i widgete **točno** ovim imenima:
+      - **Prva kartica** `tab_trenutno` (QWidget)
+        - `QLabel` — naslov “Trenutno vrijeme”
+        - `QLineEdit` — `city_input`
+        - `QPushButton` — `fetch_button` (“Dohvati vrijeme”)
+        - `QLabel` — `city_label`
+        - `QLabel` — `icon_label`
+        - `QLabel` — `temp_label`
+        - `QLabel` — `desc_label`
+        - `QLabel` — `humidity_label`
+        - `QLabel` — `wind_label`
+      - **Druga kartica** `tab_prognoza` (QWidget)
+        - `QTableWidget` — `forecast_table` (3 stupca: “Vrijeme”, “Temperatura”, “Opis”)
+        - `QLabel` — `graph_label`
+      - **Treća kartica** `tab_postavke` (QWidget)
+        - `QLabel` — “OpenWeather API ključ:”
+        - `QLineEdit` — `api_key_input`
+        - `QLabel` — “Jedinice:”
+        - `QComboBox` — `units_combo` (stavke: “Celzijus”, “Fahrenheit”)
+        - `QPushButton` — `save_settings_button` (“Spremi postavke”)
+   4. U **QMainWindow** dodajte **QStatusBar**.
+   5. Spremite datoteku kao **`vrijeme_app.ui`** u korijen projekta.
+   6. Generirajte Python kod iz `.ui`:
+      ```bash
+      pyside6-uic vrijeme_app.ui -o ui_vrijeme.py
+      ```
+
+   ### Opcija B — Preuzmite gotov UI s Gita
+   1. Preuzmite datoteku **`vrijeme_app.ui`** iz repozitorija (putanja: `./vrijeme_app.ui`).
+   2. Kopirajte je u korijen projekta (pokraj `main.py`).
+   3. Generirajte Python kod iz `.ui`:
+      ```bash
+      pyside6-uic vrijeme_app.ui -o ui_vrijeme.py
+      ```
 
    7. Pokrenite aplikaciju:
-     ```bash
-     python main.py
      ```
+      python main.py
+           ```
+
+
+> Napomena: Nazivi widgeta moraju biti **identični** gore navedenima (npr. `city_input`, `forecast_table`, `units_combo`…), jer ih aplikacijska logika očekuje.
 
 ---
 
