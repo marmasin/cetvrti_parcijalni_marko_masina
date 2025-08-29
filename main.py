@@ -1,10 +1,13 @@
 import sys
 import sqlite3
 import requests
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QTableWidgetItem
-from PySide6.QtCore import QThread, Signal,QDateTime
-from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, Qt
+from PySide6.QtWidgets import QTableWidgetItem
+from datetime import datetime
 from ui_vrijeme import Ui_MainWindow
+
 # ---------------------------------------
 # Baza podataka - inicijalizacija
 # ---------------------------------------
@@ -48,27 +51,26 @@ class WeatherFetcher(QThread):
         # TODO: implementirati GET pozive na /weather i /forecast
         #       te emitirati self.finished({...}) ili self.error("...").
         try:
-            # Primjer GET poziva (zamijeniti s pravim URL-ovima i parametrima)
-            current_url = f"http://api.openweathermap.org/data/2.5/weather?q={self.city}&appid={self.api_key}&units={self.units}"
-            forecast_url = f"http://api.openweathermap.org/data/2.5/forecast?q={self.city}&appid={self.api_key}&units={self.units}"
-
-            current_resp = requests.get(current_url)
-            forecast_resp = requests.get(forecast_url)
-
-            if current_resp.status_code != 200 or forecast_resp.status_code != 200:
-                self.error.emit("Greška pri dohvaćanju podataka.")
-                return
-
-            current_data = current_resp.json()
-            forecast_data = forecast_resp.json()
-
-            self.finished.emit({
-                "current": current_data,
-                "forecast": forecast_data
-            })
-        except Exception as e:
-            self.error.emit(f"Greška: {str(e)}")
-
+            weather_data = requests.get(
+                "http://api.openweathermap.org/data/2.5/weather", params={
+                    "city": self.city,
+                    "api_key": self.api_key,
+                    "units": self.units
+                }
+            )
+            forecast_data = requests.get(
+                "http://api.openweathermap.org/data/2.5/forecast", params={
+                    "city": self.city,
+                    "api_key": self.api_key,
+                    "units": self.units
+                }
+            )
+        except requests.RequestException as e:
+            self.error.emit(str(e))
+            return
+        
+        else:
+            self.error.emit("Greška prilikom dohvaćanja podataka.")
 
 # ---------------------------------------
 # Glavna aplikacija
@@ -79,137 +81,193 @@ class WeatherApp(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         init_db()
-        # API key should be securely loaded from settings or environment variable.
-        # Replace 'YOUR_API_KEY_HERE' with your actual OpenWeather API key if not using settings.
-        import os
-        self.api_key = os.environ.get("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
+        self.api_key = "YOUR_API_KEY_HERE"
         self.units = "metric"
         self.weather_thread = None
 
         # TODO: povezati gumbe i combo box s metodama
         # npr. self.fetch_button.clicked.connect(self.start_fetch_weather)
-        self.load_settings()
         self.fetch_button.clicked.connect(self.start_fetch_weather)
+        self.save_settings_button.clicked.connect(self.save_settings)
+        #self.units_combo.currentTextChanged.connect(self.update_units_state)
 
-        
-
+        self.load_settings()
 
     def load_settings(self):
         """Učitava spremljene postavke iz baze."""
         # TODO: dohvatiti api_key i units iz tablice settings
-        conn = sqlite3.connect("weather_app.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'api_key'")
-        api_key_row = cursor.fetchone()
-        if api_key_row is not None:
-            self.api_key = api_key_row[0]
-        else:
-            self.api_key = "YOUR_API_KEY_HERE"
-        cursor.execute("SELECT value FROM settings WHERE key = 'units'")
-        units_row = cursor.fetchone()
-        if units_row is not None:
-            self.units = units_row[0]
-        else:
-            self.units = "metric"
-        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('api_key', self.api_key))
-        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('units', self.units))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect("weather_app.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = 'api_key'")
+            row = cursor.fetchone()
+            if row:
+                self.api_key = row[0]
+                self.api_key_input.setText(self.api_key)
+            cursor.execute("SELECT value FROM settings WHERE key = 'units'")
+            row = cursor.fetchone()
+            if row:
+                self.units = row[0]
+                if self.units == "metric":
+                    self.units_combo.setCurrentText("Celzijus")
+                else:
+                    self.units_combo.setCurrentText("Fahrenheit")
+        self.statusbar.showMessage("Postavke uspješno učitane.")
+
+    def save_settings(self):
         """Sprema postavke u bazu podataka."""
         # TODO: zapisati api_key i units u tablicu settings
-        conn = sqlite3.connect("weather_app.db")
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO settings (key, value) VALUES
-            ('api_key', ?),
-            ('units', ?)
-        """, (self.api_key, self.units))
-        conn.commit()
-        conn.close()
+        self.api_key = self.api_key_input.text()
+        self.units = "metric" if self.units_combo.currentText() == "Celzijus" else "imperial"
 
+        with sqlite3.connect("weather_app.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("api_key", self.api_key))
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("units", self.units))
+            conn.commit()
+        self.statusbar.showMessage("Postavke uspješno spremljene.")
 
     def start_fetch_weather(self):
         """Pokreće nit za dohvat vremena."""
         # TODO: provjera unosa, kreiranje i start WeatherFetcher niti
         city = self.city_input.text().strip()
         if not city:
-            self.show_error("Unesite naziv grada.")
+            self.show_error("Molimo unesite naziv grada.", 5000)
             return
 
+        if self.weather_thread and self.weather_thread.isRunning():
+            self.statusbar.showMessage("Dohvaćanje u tijeku...", 5000)
+            return
+        
+        self.statusbar.showMessage("Dohvaćanje podataka...", 0)
         self.weather_thread = WeatherFetcher(city, self.api_key, self.units)
         self.weather_thread.finished.connect(self.handle_weather_data)
-        self.weather_thread.error.connect(self.show_error)
+        self.weather_thread.error.connect(self.handle_error)
         self.weather_thread.start()
 
     def handle_weather_data(self, data: dict):
         """Ažurira UI s dohvaćenim podacima."""
         # TODO: popuniti city_label, temp_label, desc_label, itd.
         #       pozvati update_icon, update_forecast_table, draw_temp_graph
-        current = data.get("current", {})
-        self.city_label.setText(current.get("name", ""))
-        self.temp_label.setText(f"{current.get('main', {}).get('temp', 0)} °C")
-        self.desc_label.setText(current.get("weather", [{}])[0].get("description", ""))
-        self.update_icon(current.get("weather", [{}])[0].get("icon", ""))
-        self.update_forecast_table(data.get("forecast", {}))
-        self.draw_temp_graph(data.get("forecast", {}))
+        current_data = data.get("current")
+        forecast_data = data.get("forecast")
+        
+        if current_data:
+            city_name = current_data["name"]
+            country_code = current_data["sys"]["country"]
+            temperature = current_data["main"]["temp"]
+            description = current_data["weather"][0]["description"]
+            humidity = current_data["main"]["humidity"]
+            wind_speed = current_data["wind"]["speed"]
+            icon_code = current_data["weather"][0]["icon"]
+
+            temp_unit = "°C" if self.units == "metric" else "°F"
+            wind_unit = "m/s" if self.units == "metric" else "mph"
+
+            self.city_label.setText(f"{city_name}, {country_code}")
+            self.temp_label.setText(f"{temperature}{temp_unit}")
+            self.desc_label.setText(description.capitalize())
+            self.humidity_label.setText(f"Vlažnost: {humidity}%")
+            self.wind_label.setText(f"Vjetar: {wind_speed} {wind_unit}")
+            
+            self.update_icon(icon_code)
+            self.save_to_history(city_name, temperature)
+            
+        if forecast_data:
+            self.update_forecast_table(forecast_data)
+            self.draw_temp_graph(forecast_data)
+        
+        self.statusbar.showMessage("Podaci uspješno dohvaćeni.", 5000)
 
     def update_icon(self, icon_code: str):
         """Prikazuje ikonu vremena u city_label."""
         # TODO: dohvatiti ikonu s openweathermap i postaviti QPixmap
+        icon_url = f"http://openweathermap.org/img/wn/{icon_code}@2x.png"
         try:
-            response = requests.get(f"http://openweathermap.org/img/wn/{icon_code}.png")
-            if response.status_code == 200:
-                pixmap = QPixmap()
-                pixmap.loadFromData(response.content)
-                self.icon_label.setPixmap(pixmap)
-            else:
-                self.icon_label.clear()
-        except Exception:
-            self.icon_label.clear()
+            icon_data = requests.get(icon_url).content
+            pixmap = QPixmap()
+            pixmap.loadFromData(icon_data)
+            self.icon_label.setPixmap(pixmap)
+        except requests.RequestException:
+            self.icon_label.setText("Ikona nedostupna")
 
     def update_forecast_table(self, forecast: dict):
         """Popunjava QTableWidget podacima prognoze."""
-        # Dodaje do 24 unosa iz "list" (3-satni intervali)
-        forecast_list = forecast.get("list", [])
-        self.forecast_table.clearContents()
-        row_count = min(24, len(forecast_list))
-        self.forecast_table.setRowCount(row_count)
-        for i in range(row_count):
-            entry = forecast_list[i]
-            time = entry.get("dt", 0)
-            temp = entry.get("main", {}).get("temp", 0)
-            desc = entry.get("weather", [{}])[0].get("description", "")
-            self.forecast_table.setItem(i, 0, QTableWidgetItem(QDateTime.fromSecsSinceEpoch(time).toString()))
-            self.forecast_table.setItem(i, 1, QTableWidgetItem(f"{temp} °C"))
-            self.forecast_table.setItem(i, 2, QTableWidgetItem(desc))
-        forecast_list = forecast.get("list", [])
-        temperatures = [entry.get("main", {}).get("temp", 0) for entry in forecast_list[:24]]
-        # Ovdje bi išao kod za crtanje grafikona, npr. koristeći matplotlib
+        # TODO: dodati 24 unosa (vrijeme, temperatura, opis)
+        self.forecast_table.setRowCount(0) # Čisti tablicu
+        
+        list_data = forecast.get("list", [])
+        self.forecast_table.setRowCount(len(list_data))
+        
+        temp_unit = "°C" if self.units == "metric" else "°F"
+
+        for i, item in enumerate(list_data):
+            date_time = datetime.fromtimestamp(item["dt"])
+            temp = item["main"]["temp"]
+            description = item["weather"][0]["description"]
+            
+            self.forecast_table.setItem(i, 0, QTableWidgetItem(date_time.strftime("%H:%M %d.%m.")))
+            self.forecast_table.setItem(i, 1, QTableWidgetItem(f"{temp}{temp_unit}"))
+            self.forecast_table.setItem(i, 2, QTableWidgetItem(description.capitalize()))
+            
+        self.forecast_table.resizeColumnsToContents()
 
     def draw_temp_graph(self, forecast: dict):
-        from PySide6.QtCore import Qt
-        cursor.execute("""
-            INSERT INTO history (city, date, temp) VALUES (?, ?, ?)
-        """, (city, QDateTime.currentDateTime().toString(Qt.ISODate), temp))
-        conn.commit()
-        conn.close()
+        """Crtanje grafikona temperature."""
+        # TODO: nacrtati jednostavan grafikon unutar graph_label
+        list_data = forecast.get("list", [])
+        if not list_data:
+            return
+
+        pixmap = QPixmap(self.graph_label.width(), self.graph_label.height())
+        pixmap.fill(Qt.white)
+        painter = QPainter(pixmap)
+        
+        temps = [item["main"]["temp"] for item in list_data]
+        min_temp = min(temps)
+        max_temp = max(temps)
+
+        if min_temp == max_temp:
+            min_temp -= 1
+            max_temp += 1
+
+        pen = QPen(QColor(0, 120, 215))
+        pen.setWidth(2)
+        painter.setPen(pen)
+
+        width = self.graph_label.width()
+        height = self.graph_label.height()
+        padding = 10
+
+        points = []
+        for i, temp in enumerate(temps):
+            x = padding + (i / (len(temps) - 1)) * (width - 2 * padding)
+            y = height - padding - ((temp - min_temp) / (max_temp - min_temp)) * (height - 2 * padding)
+            points.append((x, y))
+
+        for i in range(len(points) - 1):
+            painter.drawLine(int(points[i][0]), int(points[i][1]), int(points[i+1][0]), int(points[i+1][1]))
+        
+        painter.end()
+        self.graph_label.setPixmap(pixmap)
+
 
     def save_to_history(self, city: str, temp: float):
         """Sprema unos u tablicu history."""
         # TODO: insert u bazu (city, date, temp)
-        conn = sqlite3.connect("weather_app.db")
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO history (city, date, temp) VALUES (?, ?, ?)
-        """, (city, QDateTime.currentDateTime().toString(), temp))
-        conn.commit()
-        conn.close()
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with sqlite3.connect("weather_app.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO history (city, date, temp) VALUES (?, ?, ?)", (city, date_str, temp))
+            conn.commit()
 
     def show_error(self, message: str):
         """Prikazuje poruku o grešci."""
         QMessageBox.critical(self, "Greška", message)
 
-
+    def handle_error(self, message: str):
+        """Prikazuje poruku o grešci."""
+        self.statusbar.showMessage(f"Greška: {message}", 0)
+        QMessageBox.warning(self, "Greška", message)
 # ---------------------------------------
 # Entry point
 # ---------------------------------------
