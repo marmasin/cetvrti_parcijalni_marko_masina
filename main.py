@@ -115,7 +115,7 @@ class WeatherApp(QMainWindow, Ui_MainWindow):
         # npr. self.fetch_button.clicked.connect(self.start_fetch_weather)
         self.fetch_button.clicked.connect(self.start_fetch_weather)
         self.save_settings_button.clicked.connect(self.save_settings)
-        #self.units_combo.currentTextChanged.connect(self.update_units_state)
+        self.units_combo.currentTextChanged.connect(self.update_units_state)
 
         self.load_settings()
 
@@ -137,6 +137,11 @@ class WeatherApp(QMainWindow, Ui_MainWindow):
                     self.units_combo.setCurrentText("Celzijus")
                 else:
                     self.units_combo.setCurrentText("Fahrenheit")
+            
+            cursor.execute("SELECT value FROM settings WHERE key = 'last_city'")
+            last_city_row = cursor.fetchone()
+            if last_city_row:
+                self.city_input.setText(last_city_row[0])
         self.statusbar.showMessage("Postavke uspješno učitane.")
 
     def save_settings(self):
@@ -144,13 +149,19 @@ class WeatherApp(QMainWindow, Ui_MainWindow):
         # TODO: zapisati api_key i units u tablicu settings
         self.api_key = self.api_key_input.text()
         self.units = "metric" if self.units_combo.currentText() == "Celzijus" else "imperial"
+        self.last_city = self.city_input.text().strip()
 
         with sqlite3.connect("weather_app.db") as conn:
             cursor = conn.cursor()
             cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("api_key", self.api_key))
             cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("units", self.units))
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("last_city", self.last_city))
             conn.commit()
         self.statusbar.showMessage("Postavke uspješno spremljene.")
+
+    def update_units_state(self, text):
+        """Ažurira interni state jedinica."""
+        self.units = "metric" if text == "Celzijus" else "imperial"
 
     def start_fetch_weather(self):
         """Pokreće nit za dohvat vremena."""
@@ -164,11 +175,20 @@ class WeatherApp(QMainWindow, Ui_MainWindow):
             self.statusbar.showMessage("Dohvaćanje u tijeku...", 5000)
             return
         
+        self.save_last_city(city)
+
         self.statusbar.showMessage("Dohvaćanje podataka...", 0)
         self.weather_thread = WeatherFetcher(city, self.api_key, self.units)
         self.weather_thread.finished.connect(self.handle_weather_data)
         self.weather_thread.error.connect(self.handle_error)
         self.weather_thread.start()
+
+    def save_last_city(self, city: str):
+        """Sprema zadnji uneseni grad u bazu podataka."""
+        with sqlite3.connect("weather_app.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("last_city", city))
+            conn.commit()
 
     def handle_weather_data(self, data: dict):
         """Ažurira UI s dohvaćenim podacima."""
